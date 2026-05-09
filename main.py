@@ -46,7 +46,9 @@ class ComparePlugin(Star):
 
     def _parse_items(self, raw_message: str) -> tuple[str, str]:
         text = raw_message.strip()
-        text = re.sub(r"^[/!！]?(compare|比较|对比|谁强)\s*", "", text, flags=re.I).strip()
+        text = re.sub(
+            r"^[/!！]?(compare|比较|对比|谁强)\s*", "", text, flags=re.I
+        ).strip()
         text = re.sub(r"[?？。!！]+$", "", text).strip()
 
         patterns = [
@@ -73,7 +75,9 @@ class ComparePlugin(Star):
             umo=event.unified_msg_origin
         )
         if not provider_id:
-            raise RuntimeError("当前会话没有可用的 LLM 提供商，请先在 AstrBot 配置模型。")
+            raise RuntimeError(
+                "当前会话没有可用的 LLM 提供商，请先在 AstrBot 配置模型。"
+            )
 
         prompt = self._build_prompt(left, right)
         last_error: Exception | None = None
@@ -166,7 +170,9 @@ aspect, left_good, left_bad, right_good, right_bad
             if isinstance(payload, dict):
                 return payload
 
-        raise ValueError(f"LLM 返回内容不是合法 JSON 对象：{cleaned[:120]}") from last_error
+        raise ValueError(
+            f"LLM 返回内容不是合法 JSON 对象：{cleaned[:120]}"
+        ) from last_error
 
     def _normalize_data(
         self, payload: dict[str, Any], left: str, right: str
@@ -233,9 +239,15 @@ aspect, left_good, left_bad, right_good, right_bad
 
         prepared_rows = []
         for row in data["rows"]:
-            left_lines = self._format_side_lines(draw, row["left_good"], row["left_bad"], font_body, side_w - 32)
-            right_lines = self._format_side_lines(draw, row["right_good"], row["right_bad"], font_body, side_w - 32)
-            aspect_lines = self._wrap_text(draw, row["aspect"], font_head, aspect_w - 28)
+            left_lines = self._format_side_lines(
+                draw, row["left_good"], row["left_bad"], font_body, side_w - 32
+            )
+            right_lines = self._format_side_lines(
+                draw, row["right_good"], row["right_bad"], font_body, side_w - 32
+            )
+            aspect_lines = self._wrap_text(
+                draw, row["aspect"], font_head, aspect_w - 28
+            )
             row_h = max(
                 98,
                 len(left_lines) * 27 + 34,
@@ -245,14 +257,28 @@ aspect, left_good, left_bad, right_good, right_bad
             prepared_rows.append((row, aspect_lines, left_lines, right_lines, row_h))
 
         table_h = 54 + sum(item[4] for item in prepared_rows)
-        final_lines = self._wrap_text(draw, data["final"], font_h2, width - margin * 2 - 40)
+        final_lines = self._wrap_text(
+            draw, data["final"], font_h2, width - margin * 2 - 40
+        )
         final_h = max(72, len(final_lines) * 34 + 34)
         height = margin + header_h + gap + table_h + gap + final_h + margin
 
         image = Image.new("RGB", (width, height), "#f6f3ec")
         draw = ImageDraw.Draw(image)
 
-        self._draw_header(draw, data, title_lines, summary_lines, font_title, font_body, font_small, font_h2, width, margin, header_h)
+        self._draw_header(
+            draw,
+            data,
+            title_lines,
+            summary_lines,
+            font_title,
+            font_body,
+            font_small,
+            font_h2,
+            width,
+            margin,
+            header_h,
+        )
 
         y = margin + header_h + gap
         self._rect(draw, [x0, y, x3, y + 54], "#1f2933", "#1f2933")
@@ -261,21 +287,33 @@ aspect, left_good, left_bad, right_good, right_bad
         self._text(draw, (x2 + 16, y + 15), data["right"], font_head, "#ffffff")
         y += 54
 
-        for index, (row, aspect_lines, left_lines, right_lines, row_h) in enumerate(prepared_rows):
+        for index, (row, aspect_lines, left_lines, right_lines, row_h) in enumerate(
+            prepared_rows
+        ):
             bg = "#fffdfa" if index % 2 == 0 else "#f8f5ef"
             self._rect(draw, [x0, y, x3, y + row_h], bg, "#1f2933")
             draw.line([(x1, y), (x1, y + row_h)], fill="#1f2933", width=2)
             draw.line([(x2, y), (x2, y + row_h)], fill="#1f2933", width=2)
             self._rect(draw, [x0, y, x1, y + row_h], "#e4edf4", "#1f2933")
-            self._draw_lines(draw, aspect_lines, x0 + 14, y + 18, font_head, "#1f2933", 28)
+            self._draw_lines(
+                draw, aspect_lines, x0 + 14, y + 18, font_head, "#1f2933", 28
+            )
             self._draw_side(draw, left_lines, x1 + 16, y + 16, font_body)
             self._draw_side(draw, right_lines, x2 + 16, y + 16, font_body)
             y += row_h
 
         final_y = y + gap
-        self._rect(draw, [margin, final_y, width - margin, final_y + final_h], "#fffdfa", "#c65f3a", 3)
+        self._rect(
+            draw,
+            [margin, final_y, width - margin, final_y + final_h],
+            "#fffdfa",
+            "#c65f3a",
+            3,
+        )
         draw.rectangle([margin, final_y, margin + 8, final_y + final_h], fill="#c65f3a")
-        self._draw_lines(draw, final_lines, margin + 24, final_y + 18, font_h2, "#1f2933", 34)
+        self._draw_lines(
+            draw, final_lines, margin + 24, final_y + 18, font_h2, "#1f2933", 34
+        )
 
         output = self.cache_dir / f"compare-{uuid.uuid4().hex}.png"
         image.save(output, "PNG")
@@ -297,15 +335,31 @@ aspect, left_good, left_bad, right_good, right_bad
     ) -> None:
         y = margin
         self._draw_lines(draw, title_lines, margin, y, font_title, "#1f2933", 52)
-        self._draw_lines(draw, summary_lines, margin, y + len(title_lines) * 52 + 12, font_body, "#52616f", 28)
+        self._draw_lines(
+            draw,
+            summary_lines,
+            margin,
+            y + len(title_lines) * 52 + 12,
+            font_body,
+            "#52616f",
+            28,
+        )
         box = [width - margin - 250, margin + 12, width - margin, margin + 112]
         self._rect(draw, box, "#cfe8dc", "#1f2933", 2)
         self._text(draw, (box[0] + 76, box[1] + 16), "综合判定", font_small, "#52616f")
         winner_lines = self._wrap_text(draw, data["winner"], font_h2, 210)
-        self._draw_lines(draw, winner_lines[:2], box[0] + 20, box[1] + 45, font_h2, "#1f2933", 32)
-        draw.line([(margin, margin + header_h - 1), (width - margin, margin + header_h - 1)], fill="#1f2933", width=3)
+        self._draw_lines(
+            draw, winner_lines[:2], box[0] + 20, box[1] + 45, font_h2, "#1f2933", 32
+        )
+        draw.line(
+            [(margin, margin + header_h - 1), (width - margin, margin + header_h - 1)],
+            fill="#1f2933",
+            width=3,
+        )
 
-    def _format_side_lines(self, draw: Any, good: str, bad: str, font: Any, max_width: int) -> list[tuple[str, str]]:
+    def _format_side_lines(
+        self, draw: Any, good: str, bad: str, font: Any, max_width: int
+    ) -> list[tuple[str, str]]:
         lines: list[tuple[str, str]] = []
         for tag, text in [("优", good), ("劣", bad)]:
             wrapped = self._wrap_text(draw, text, font, max_width - 54)
@@ -313,7 +367,9 @@ aspect, left_good, left_bad, right_good, right_bad
                 lines.append((tag if idx == 0 else "", line))
         return lines
 
-    def _draw_side(self, draw: Any, lines: list[tuple[str, str]], x: int, y: int, font: Any) -> None:
+    def _draw_side(
+        self, draw: Any, lines: list[tuple[str, str]], x: int, y: int, font: Any
+    ) -> None:
         for tag, text in lines:
             if tag:
                 fill = "#d9f0df" if tag == "优" else "#ffe1d6"
@@ -338,20 +394,31 @@ aspect, left_good, left_bad, right_good, right_bad
         return result or [""]
 
     def _draw_lines(
-        self, draw: Any, lines: list[str], x: int, y: int, font: Any, fill: str, line_h: int
+        self,
+        draw: Any,
+        lines: list[str],
+        x: int,
+        y: int,
+        font: Any,
+        fill: str,
+        line_h: int,
     ) -> None:
         for line in lines:
             self._text(draw, (x, y), line, font, fill)
             y += line_h
 
-    def _text(self, draw: Any, xy: tuple[int, int], text: str, font: Any, fill: str) -> None:
+    def _text(
+        self, draw: Any, xy: tuple[int, int], text: str, font: Any, fill: str
+    ) -> None:
         draw.text(xy, str(text), font=font, fill=fill)
 
     def _text_width(self, draw: Any, text: str, font: Any) -> int:
         box = draw.textbbox((0, 0), text, font=font)
         return box[2] - box[0]
 
-    def _rect(self, draw: Any, xy: list[int], fill: str, outline: str, width: int = 2) -> None:
+    def _rect(
+        self, draw: Any, xy: list[int], fill: str, outline: str, width: int = 2
+    ) -> None:
         draw.rectangle(xy, fill=fill, outline=outline, width=width)
 
     def _load_font(self, image_font: Any, size: int, bold: bool = False) -> Any:
@@ -383,16 +450,33 @@ aspect, left_good, left_bad, right_good, right_bad
         candidates = [
             env_bold_font if bold and env_bold_font else env_font,
             plugin_fonts / "NotoSansCJKsc-Regular.otf",
-            plugin_fonts / ("NotoSansCJK-Bold.ttc" if bold else "NotoSansCJK-Regular.ttc"),
-            plugin_fonts / ("NotoSansSC-Bold.otf" if bold else "NotoSansSC-Regular.otf"),
-            plugin_fonts / ("SourceHanSansSC-Bold.otf" if bold else "SourceHanSansSC-Regular.otf"),
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansSC-Bold.otf" if bold else "/usr/share/fonts/opentype/noto/NotoSansSC-Regular.otf",
-            "/usr/share/fonts/truetype/noto/NotoSansSC-Bold.otf" if bold else "/usr/share/fonts/truetype/noto/NotoSansSC-Regular.otf",
-            "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Bold.otf" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
-            "/usr/share/fonts/truetype/noto/NotoSansCJKsc-Bold.otf" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJKsc-Regular.otf",
-            "/usr/share/fonts/opentype/source-han-sans/SourceHanSansSC-Bold.otf" if bold else "/usr/share/fonts/opentype/source-han-sans/SourceHanSansSC-Regular.otf",
+            plugin_fonts
+            / ("NotoSansCJK-Bold.ttc" if bold else "NotoSansCJK-Regular.ttc"),
+            plugin_fonts
+            / ("NotoSansSC-Bold.otf" if bold else "NotoSansSC-Regular.otf"),
+            plugin_fonts
+            / ("SourceHanSansSC-Bold.otf" if bold else "SourceHanSansSC-Regular.otf"),
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+            if bold
+            else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc"
+            if bold
+            else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansSC-Bold.otf"
+            if bold
+            else "/usr/share/fonts/opentype/noto/NotoSansSC-Regular.otf",
+            "/usr/share/fonts/truetype/noto/NotoSansSC-Bold.otf"
+            if bold
+            else "/usr/share/fonts/truetype/noto/NotoSansSC-Regular.otf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Bold.otf"
+            if bold
+            else "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+            "/usr/share/fonts/truetype/noto/NotoSansCJKsc-Bold.otf"
+            if bold
+            else "/usr/share/fonts/truetype/noto/NotoSansCJKsc-Regular.otf",
+            "/usr/share/fonts/opentype/source-han-sans/SourceHanSansSC-Bold.otf"
+            if bold
+            else "/usr/share/fonts/opentype/source-han-sans/SourceHanSansSC-Regular.otf",
             "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
             "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
             "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
