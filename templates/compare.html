@@ -152,12 +152,12 @@
   <main class="sheet">
     <section class="header">
       <div>
-        <h1>{{ title }}</h1>
-        <div class="summary">{{ summary }}</div>
+        <h1>{{ title|e }}</h1>
+        <div class="summary">{{ summary|e }}</div>
       </div>
       <aside class="winner">
         <div class="winner-label">&#32508;&#21512;&#21028;&#23450;</div>
-        <div class="winner-name">{{ winner }}</div>
+        <div class="winner-name">{{ winner|e }}</div>
       </aside>
     </section>
 
@@ -165,28 +165,28 @@
       <thead>
         <tr>
           <th class="aspect">&#32500;&#24230;</th>
-          <th class="side">{{ left }}</th>
-          <th class="side">{{ right }}</th>
+          <th class="side">{{ left|e }}</th>
+          <th class="side">{{ right|e }}</th>
         </tr>
       </thead>
       <tbody>
         {% for row in rows %}
         <tr>
-          <td class="aspect-cell">{{ row.aspect }}</td>
+          <td class="aspect-cell">{{ row.aspect|e }}</td>
           <td>
-            <p class="point"><span class="tag good">&#20248;</span>{{ row.left_good }}</p>
-            <p class="point"><span class="tag bad">&#21155;</span>{{ row.left_bad }}</p>
+            <p class="point"><span class="tag good">&#20248;</span>{{ row.left_good|e }}</p>
+            <p class="point"><span class="tag bad">&#21155;</span>{{ row.left_bad|e }}</p>
           </td>
           <td>
-            <p class="point"><span class="tag good">&#20248;</span>{{ row.right_good }}</p>
-            <p class="point"><span class="tag bad">&#21155;</span>{{ row.right_bad }}</p>
+            <p class="point"><span class="tag good">&#20248;</span>{{ row.right_good|e }}</p>
+            <p class="point"><span class="tag bad">&#21155;</span>{{ row.right_bad|e }}</p>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
 
-    <section class="final">{{ final }}</section>
+    <section class="final">{{ final|e }}</section>
   </main>
 </body>
 </html>

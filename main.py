@@ -27,8 +27,9 @@ class ComparePlugin(Star):
 
         try:
             data = await self._generate_compare_data(event, left, right)
+            template = self.template_path.read_text(encoding="utf-8")
             image_url = await self.html_render(
-                str(self.template_path),
+                template,
                 data,
                 options={
                     "type": "png",
@@ -38,9 +39,14 @@ class ComparePlugin(Star):
                 },
             )
         except Exception as exc:
-            logger.exception("生成对比图片失败")
-            yield event.plain_result(f"生成对比失败：{exc}")
-            return
+            logger.exception("HTML 对比图渲染失败，尝试使用纯文本图片兜底")
+            try:
+                fallback_text = self._build_fallback_text(data)
+                image_url = await self.text_to_image(fallback_text)
+            except Exception:
+                logger.exception("纯文本图片兜底也失败")
+                yield event.plain_result(f"生成对比失败：{exc}")
+                return
 
         yield event.image_result(image_url)
 
@@ -153,6 +159,27 @@ JSON 格式必须是：
             "rows": normalized_rows,
             "final": str(payload.get("final") or "")[:140],
         }
+
+    def _build_fallback_text(self, data: dict[str, Any]) -> str:
+        lines = [
+            data["title"],
+            f"综合判定：{data['winner']}",
+            data["summary"],
+            "",
+        ]
+        for row in data["rows"]:
+            lines.extend(
+                [
+                    f"【{row['aspect']}】",
+                    f"{data['left']} 优：{row['left_good']}",
+                    f"{data['left']} 劣：{row['left_bad']}",
+                    f"{data['right']} 优：{row['right_good']}",
+                    f"{data['right']} 劣：{row['right_bad']}",
+                    "",
+                ]
+            )
+        lines.append(data["final"])
+        return "\n".join(lines)
 
     async def terminate(self):
         pass
