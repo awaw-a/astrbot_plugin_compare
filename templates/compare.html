@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      width: 1180px;
+      background: #f6f3ec;
+      color: #1f2933;
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
+    }
+
+    .sheet {
+      padding: 42px;
+    }
+
+    .header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: end;
+      margin-bottom: 24px;
+      border-bottom: 3px solid #1f2933;
+      padding-bottom: 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 44px;
+      line-height: 1.16;
+      letter-spacing: 0;
+    }
+
+    .summary {
+      margin-top: 12px;
+      font-size: 22px;
+      color: #52616f;
+      line-height: 1.45;
+    }
+
+    .winner {
+      min-width: 210px;
+      border: 2px solid #1f2933;
+      background: #cfe8dc;
+      padding: 14px 18px;
+      text-align: center;
+    }
+
+    .winner-label {
+      font-size: 16px;
+      color: #52616f;
+      margin-bottom: 6px;
+    }
+
+    .winner-name {
+      font-size: 26px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      background: #fffdfa;
+      border: 2px solid #1f2933;
+    }
+
+    th,
+    td {
+      border: 1.5px solid #1f2933;
+      vertical-align: top;
+      padding: 16px;
+      line-height: 1.45;
+      font-size: 18px;
+      word-break: break-word;
+    }
+
+    th {
+      background: #2e4057;
+      color: #ffffff;
+      font-size: 20px;
+      text-align: left;
+    }
+
+    th.aspect {
+      width: 150px;
+      background: #1f2933;
+    }
+
+    th.side {
+      width: 515px;
+    }
+
+    tr:nth-child(even) td {
+      background: #f8f5ef;
+    }
+
+    .aspect-cell {
+      font-weight: 800;
+      font-size: 20px;
+      color: #1f2933;
+      background: #e4edf4;
+    }
+
+    .point {
+      margin: 0 0 10px;
+    }
+
+    .point:last-child {
+      margin-bottom: 0;
+    }
+
+    .tag {
+      display: inline-block;
+      min-width: 42px;
+      margin-right: 8px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .good {
+      background: #d9f0df;
+      color: #17613a;
+    }
+
+    .bad {
+      background: #ffe1d6;
+      color: #9b341f;
+    }
+
+    .final {
+      margin-top: 24px;
+      padding: 18px 20px;
+      border-left: 8px solid #c65f3a;
+      background: #fffdfa;
+      font-size: 22px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet">
+    <section class="header">
+      <div>
+        <h1>{{ title }}</h1>
+        <div class="summary">{{ summary }}</div>
+      </div>
+      <aside class="winner">
+        <div class="winner-label">&#32508;&#21512;&#21028;&#23450;</div>
+        <div class="winner-name">{{ winner }}</div>
+      </aside>
+    </section>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="aspect">&#32500;&#24230;</th>
+          <th class="side">{{ left }}</th>
+          <th class="side">{{ right }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="aspect-cell">{{ row.aspect }}</td>
+          <td>
+            <p class="point"><span class="tag good">&#20248;</span>{{ row.left_good }}</p>
+            <p class="point"><span class="tag bad">&#21155;</span>{{ row.left_bad }}</p>
+          </td>
+          <td>
+            <p class="point"><span class="tag good">&#20248;</span>{{ row.right_good }}</p>
+            <p class="point"><span class="tag bad">&#21155;</span>{{ row.right_bad }}</p>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <section class="final">{{ final }}</section>
+  </main>
+</body>
+</html>
