@@ -1,6 +1,6 @@
 name: compare
-display_name: 两项对比
+display_name: 两项对比图
 desc: 调用 LLM 生成两者优劣对照表，并在本地生成 PNG 图片发送。
 version: v1.0.1
 author: aw4w
-repo: https://github.com/aw4w/astrbot-plugin-compare
+repo: https://github.com/awaw-a/astrbot_plugin_compare
