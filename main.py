@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import tempfile
 import time
@@ -17,6 +18,7 @@ class ComparePlugin(Star):
         super().__init__(context)
         self.cache_dir = Path(tempfile.gettempdir()) / "astrbot_plugin_compare"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._font_path_cache: dict[bool, Path] = {}
 
     @filter.command("compare", alias={"比较", "对比", "谁强"})
     async def compare(self, event: AstrMessageEvent):
@@ -307,23 +309,33 @@ JSON 格式必须是：
         draw.rectangle(xy, fill=fill, outline=outline, width=width)
 
     def _load_font(self, image_font: Any, size: int, bold: bool = False) -> Any:
+        cached_path = self._font_path_cache.get(bold)
+        if cached_path:
+            return image_font.truetype(str(cached_path), size=size)
+
         for path in self._font_candidates(bold):
             try:
                 font = image_font.truetype(str(path), size=size)
             except Exception:
                 continue
             if self._font_can_render_cjk(font):
+                self._font_path_cache[bold] = path
                 return font
 
         raise RuntimeError(
             "没有找到可用的中文字体，无法生成中文对比图。"
-            "请在系统中安装 Noto Sans CJK / WenQuanYi / 微软雅黑，"
-            "或把中文字体文件放到插件目录的 fonts 文件夹后重载插件。"
+            "如果 AstrBot 运行在 Debian/Ubuntu/Docker 里，可进入容器执行："
+            "apt update && apt install -y fonts-noto-cjk；"
+            "也可以把 NotoSansCJK-Regular.ttc 等中文字体放到插件目录 fonts 文件夹，"
+            "或设置环境变量 ASTRBOT_COMPARE_FONT 指向字体文件后重载插件。"
         )
 
     def _font_candidates(self, bold: bool) -> list[Path]:
         plugin_fonts = Path(__file__).resolve().parent / "fonts"
+        env_font = os.getenv("ASTRBOT_COMPARE_FONT")
+        env_bold_font = os.getenv("ASTRBOT_COMPARE_BOLD_FONT")
         candidates = [
+            env_bold_font if bold and env_bold_font else env_font,
             plugin_fonts / ("NotoSansCJK-Bold.ttc" if bold else "NotoSansCJK-Regular.ttc"),
             plugin_fonts / ("NotoSansSC-Bold.otf" if bold else "NotoSansSC-Regular.otf"),
             plugin_fonts / ("SourceHanSansSC-Bold.otf" if bold else "SourceHanSansSC-Regular.otf"),
@@ -353,6 +365,7 @@ JSON 格式必须是：
         ]:
             if not directory.exists():
                 continue
+            candidates.extend(self._iter_font_files(directory))
             for pattern in [
                 "*Noto*Sans*CJK*",
                 "*Noto*Sans*SC*",
@@ -366,6 +379,8 @@ JSON 格式必须是：
         result: list[Path] = []
         seen: set[str] = set()
         for candidate in candidates:
+            if not candidate:
+                continue
             path = Path(candidate)
             key = str(path).lower()
             if key in seen or path.suffix.lower() not in {".ttf", ".ttc", ".otf"}:
@@ -373,6 +388,12 @@ JSON 格式必须是：
             seen.add(key)
             result.append(path)
         return result
+
+    def _iter_font_files(self, directory: Path) -> list[Path]:
+        fonts: list[Path] = []
+        for suffix in ("*.ttf", "*.ttc", "*.otf", "*.TTF", "*.TTC", "*.OTF"):
+            fonts.extend(directory.rglob(suffix))
+        return fonts
 
     def _font_can_render_cjk(self, font: Any) -> bool:
         try:
