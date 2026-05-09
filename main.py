@@ -336,6 +336,7 @@ JSON 格式必须是：
         env_bold_font = os.getenv("ASTRBOT_COMPARE_BOLD_FONT")
         candidates = [
             env_bold_font if bold and env_bold_font else env_font,
+            plugin_fonts / "NotoSansCJKsc-Regular.otf",
             plugin_fonts / ("NotoSansCJK-Bold.ttc" if bold else "NotoSansCJK-Regular.ttc"),
             plugin_fonts / ("NotoSansSC-Bold.otf" if bold else "NotoSansSC-Regular.otf"),
             plugin_fonts / ("SourceHanSansSC-Bold.otf" if bold else "SourceHanSansSC-Regular.otf"),
