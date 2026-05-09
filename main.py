@@ -307,21 +307,85 @@ JSON 格式必须是：
         draw.rectangle(xy, fill=fill, outline=outline, width=width)
 
     def _load_font(self, image_font: Any, size: int, bold: bool = False) -> Any:
-        candidates = [
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-            "/usr/share/fonts/truetype/arphic/uming.ttc",
-            "/System/Library/Fonts/PingFang.ttc",
-            "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc",
-            "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
-        ]
-        for path in candidates:
+        for path in self._font_candidates(bold):
             try:
-                return image_font.truetype(path, size=size)
+                font = image_font.truetype(str(path), size=size)
             except Exception:
                 continue
-        return image_font.load_default()
+            if self._font_can_render_cjk(font):
+                return font
+
+        raise RuntimeError(
+            "没有找到可用的中文字体，无法生成中文对比图。"
+            "请在系统中安装 Noto Sans CJK / WenQuanYi / 微软雅黑，"
+            "或把中文字体文件放到插件目录的 fonts 文件夹后重载插件。"
+        )
+
+    def _font_candidates(self, bold: bool) -> list[Path]:
+        plugin_fonts = Path(__file__).resolve().parent / "fonts"
+        candidates = [
+            plugin_fonts / ("NotoSansCJK-Bold.ttc" if bold else "NotoSansCJK-Regular.ttc"),
+            plugin_fonts / ("NotoSansSC-Bold.otf" if bold else "NotoSansSC-Regular.otf"),
+            plugin_fonts / ("SourceHanSansSC-Bold.otf" if bold else "SourceHanSansSC-Regular.otf"),
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansSC-Bold.otf" if bold else "/usr/share/fonts/opentype/noto/NotoSansSC-Regular.otf",
+            "/usr/share/fonts/truetype/noto/NotoSansSC-Bold.otf" if bold else "/usr/share/fonts/truetype/noto/NotoSansSC-Regular.otf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Bold.otf" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+            "/usr/share/fonts/truetype/noto/NotoSansCJKsc-Bold.otf" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJKsc-Regular.otf",
+            "/usr/share/fonts/opentype/source-han-sans/SourceHanSansSC-Bold.otf" if bold else "/usr/share/fonts/opentype/source-han-sans/SourceHanSansSC-Regular.otf",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            "/System/Library/Fonts/Supplemental/Songti.ttc",
+            "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
+            "C:/Windows/Fonts/simsun.ttc",
+        ]
+
+        for directory in [
+            plugin_fonts,
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+            Path.home() / ".local/share/fonts",
+        ]:
+            if not directory.exists():
+                continue
+            for pattern in [
+                "*Noto*Sans*CJK*",
+                "*Noto*Sans*SC*",
+                "*SourceHanSans*",
+                "*Source*Han*Sans*",
+                "*wqy*",
+                "*DroidSansFallback*",
+            ]:
+                candidates.extend(directory.rglob(pattern))
+
+        result: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            path = Path(candidate)
+            key = str(path).lower()
+            if key in seen or path.suffix.lower() not in {".ttf", ".ttc", ".otf"}:
+                continue
+            seen.add(key)
+            result.append(path)
+        return result
+
+    def _font_can_render_cjk(self, font: Any) -> bool:
+        try:
+            masks = []
+            for char in "汉测优劣":
+                mask = font.getmask(char)
+                bbox = mask.getbbox()
+                if bbox is None:
+                    return False
+                masks.append((mask.size, bbox, bytes(mask)))
+            return len(set(masks)) > 1
+        except Exception:
+            return False
 
     def _cleanup_image_cache(self) -> None:
         deadline = time.time() - 24 * 60 * 60
