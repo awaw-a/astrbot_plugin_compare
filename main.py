@@ -1,5 +1,8 @@
 import json
 import re
+import tempfile
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -8,15 +11,16 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 
-@register("compare", "aw4w", "调用 LLM 生成两者优劣对照表并输出图片", "1.0.0")
+@register("compare", "aw4w", "调用 LLM 生成两者优劣对照表并输出图片", "1.0.1")
 class ComparePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.template_path = Path(__file__).parent / "templates" / "compare.html"
+        self.cache_dir = Path(tempfile.gettempdir()) / "astrbot_plugin_compare"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     @filter.command("compare", alias={"比较", "对比", "谁强"})
     async def compare(self, event: AstrMessageEvent):
-        """比较两个对象，并以图片表格输出结果。"""
+        """比较两个对象，并以本地 PNG 表格输出结果。"""
         try:
             left, right = self._parse_items(event.message_str)
         except ValueError as exc:
@@ -27,28 +31,16 @@ class ComparePlugin(Star):
 
         try:
             data = await self._generate_compare_data(event, left, right)
-            template = self.template_path.read_text(encoding="utf-8")
-            image_url = await self.html_render(
-                template,
-                data,
-                options={
-                    "type": "png",
-                    "full_page": True,
-                    "timeout": 30,
-                    "animations": "disabled",
-                },
+            image_path = self._render_png(data)
+            yield event.image_result(str(image_path))
+        except ImportError:
+            yield event.plain_result(
+                "缺少 Pillow 依赖，无法本地生成图片。请在 AstrBot 控制台安装 Pillow，"
+                "或确认插件目录里有 requirements.txt 后重载插件。"
             )
         except Exception as exc:
-            logger.exception("HTML 对比图渲染失败，尝试使用纯文本图片兜底")
-            try:
-                fallback_text = self._build_fallback_text(data)
-                image_url = await self.text_to_image(fallback_text)
-            except Exception:
-                logger.exception("纯文本图片兜底也失败")
-                yield event.plain_result(f"生成对比失败：{exc}")
-                return
-
-        yield event.image_result(image_url)
+            logger.exception("生成对比图片失败")
+            yield event.plain_result(f"生成对比失败：{exc}")
 
     def _parse_items(self, raw_message: str) -> tuple[str, str]:
         text = raw_message.strip()
@@ -160,26 +152,185 @@ JSON 格式必须是：
             "final": str(payload.get("final") or "")[:140],
         }
 
-    def _build_fallback_text(self, data: dict[str, Any]) -> str:
-        lines = [
-            data["title"],
-            f"综合判定：{data['winner']}",
-            data["summary"],
-            "",
-        ]
+    def _render_png(self, data: dict[str, Any]) -> Path:
+        from PIL import Image, ImageDraw, ImageFont
+
+        self._cleanup_image_cache()
+
+        width = 1200
+        margin = 42
+        gap = 18
+        aspect_w = 150
+        side_w = (width - margin * 2 - aspect_w) // 2
+        x0 = margin
+        x1 = x0 + aspect_w
+        x2 = x1 + side_w
+        x3 = x2 + side_w
+
+        font_title = self._load_font(ImageFont, 42, bold=True)
+        font_h2 = self._load_font(ImageFont, 24, bold=True)
+        font_head = self._load_font(ImageFont, 21, bold=True)
+        font_body = self._load_font(ImageFont, 19)
+        font_small = self._load_font(ImageFont, 16, bold=True)
+
+        probe = Image.new("RGB", (width, 100), "#f6f3ec")
+        draw = ImageDraw.Draw(probe)
+
+        summary_lines = self._wrap_text(draw, data["summary"], font_body, 720)
+        title_lines = self._wrap_text(draw, data["title"], font_title, 720)
+        header_h = max(
+            150,
+            34 + len(title_lines) * 52 + len(summary_lines) * 28,
+        )
+
+        prepared_rows = []
         for row in data["rows"]:
-            lines.extend(
-                [
-                    f"【{row['aspect']}】",
-                    f"{data['left']} 优：{row['left_good']}",
-                    f"{data['left']} 劣：{row['left_bad']}",
-                    f"{data['right']} 优：{row['right_good']}",
-                    f"{data['right']} 劣：{row['right_bad']}",
-                    "",
-                ]
+            left_lines = self._format_side_lines(draw, row["left_good"], row["left_bad"], font_body, side_w - 32)
+            right_lines = self._format_side_lines(draw, row["right_good"], row["right_bad"], font_body, side_w - 32)
+            aspect_lines = self._wrap_text(draw, row["aspect"], font_head, aspect_w - 28)
+            row_h = max(
+                98,
+                len(left_lines) * 27 + 34,
+                len(right_lines) * 27 + 34,
+                len(aspect_lines) * 28 + 34,
             )
-        lines.append(data["final"])
-        return "\n".join(lines)
+            prepared_rows.append((row, aspect_lines, left_lines, right_lines, row_h))
+
+        table_h = 54 + sum(item[4] for item in prepared_rows)
+        final_lines = self._wrap_text(draw, data["final"], font_h2, width - margin * 2 - 40)
+        final_h = max(72, len(final_lines) * 34 + 34)
+        height = margin + header_h + gap + table_h + gap + final_h + margin
+
+        image = Image.new("RGB", (width, height), "#f6f3ec")
+        draw = ImageDraw.Draw(image)
+
+        self._draw_header(draw, data, title_lines, summary_lines, font_title, font_body, font_small, font_h2, width, margin, header_h)
+
+        y = margin + header_h + gap
+        self._rect(draw, [x0, y, x3, y + 54], "#1f2933", "#1f2933")
+        self._text(draw, (x0 + 16, y + 15), "维度", font_head, "#ffffff")
+        self._text(draw, (x1 + 16, y + 15), data["left"], font_head, "#ffffff")
+        self._text(draw, (x2 + 16, y + 15), data["right"], font_head, "#ffffff")
+        y += 54
+
+        for index, (row, aspect_lines, left_lines, right_lines, row_h) in enumerate(prepared_rows):
+            bg = "#fffdfa" if index % 2 == 0 else "#f8f5ef"
+            self._rect(draw, [x0, y, x3, y + row_h], bg, "#1f2933")
+            draw.line([(x1, y), (x1, y + row_h)], fill="#1f2933", width=2)
+            draw.line([(x2, y), (x2, y + row_h)], fill="#1f2933", width=2)
+            self._rect(draw, [x0, y, x1, y + row_h], "#e4edf4", "#1f2933")
+            self._draw_lines(draw, aspect_lines, x0 + 14, y + 18, font_head, "#1f2933", 28)
+            self._draw_side(draw, left_lines, x1 + 16, y + 16, font_body)
+            self._draw_side(draw, right_lines, x2 + 16, y + 16, font_body)
+            y += row_h
+
+        final_y = y + gap
+        self._rect(draw, [margin, final_y, width - margin, final_y + final_h], "#fffdfa", "#c65f3a", 3)
+        draw.rectangle([margin, final_y, margin + 8, final_y + final_h], fill="#c65f3a")
+        self._draw_lines(draw, final_lines, margin + 24, final_y + 18, font_h2, "#1f2933", 34)
+
+        output = self.cache_dir / f"compare-{uuid.uuid4().hex}.png"
+        image.save(output, "PNG")
+        return output
+
+    def _draw_header(
+        self,
+        draw: Any,
+        data: dict[str, Any],
+        title_lines: list[str],
+        summary_lines: list[str],
+        font_title: Any,
+        font_body: Any,
+        font_small: Any,
+        font_h2: Any,
+        width: int,
+        margin: int,
+        header_h: int,
+    ) -> None:
+        y = margin
+        self._draw_lines(draw, title_lines, margin, y, font_title, "#1f2933", 52)
+        self._draw_lines(draw, summary_lines, margin, y + len(title_lines) * 52 + 12, font_body, "#52616f", 28)
+        box = [width - margin - 250, margin + 12, width - margin, margin + 112]
+        self._rect(draw, box, "#cfe8dc", "#1f2933", 2)
+        self._text(draw, (box[0] + 76, box[1] + 16), "综合判定", font_small, "#52616f")
+        winner_lines = self._wrap_text(draw, data["winner"], font_h2, 210)
+        self._draw_lines(draw, winner_lines[:2], box[0] + 20, box[1] + 45, font_h2, "#1f2933", 32)
+        draw.line([(margin, margin + header_h - 1), (width - margin, margin + header_h - 1)], fill="#1f2933", width=3)
+
+    def _format_side_lines(self, draw: Any, good: str, bad: str, font: Any, max_width: int) -> list[tuple[str, str]]:
+        lines: list[tuple[str, str]] = []
+        for tag, text in [("优", good), ("劣", bad)]:
+            wrapped = self._wrap_text(draw, text, font, max_width - 54)
+            for idx, line in enumerate(wrapped):
+                lines.append((tag if idx == 0 else "", line))
+        return lines
+
+    def _draw_side(self, draw: Any, lines: list[tuple[str, str]], x: int, y: int, font: Any) -> None:
+        for tag, text in lines:
+            if tag:
+                fill = "#d9f0df" if tag == "优" else "#ffe1d6"
+                color = "#17613a" if tag == "优" else "#9b341f"
+                self._rect(draw, [x, y + 2, x + 42, y + 25], fill, fill)
+                self._text(draw, (x + 11, y + 2), tag, font, color)
+            self._text(draw, (x + 54, y), text, font, "#1f2933")
+            y += 27
+
+    def _wrap_text(self, draw: Any, text: str, font: Any, max_width: int) -> list[str]:
+        result: list[str] = []
+        for raw_line in str(text).splitlines() or [""]:
+            line = ""
+            for char in raw_line:
+                candidate = line + char
+                if line and self._text_width(draw, candidate, font) > max_width:
+                    result.append(line)
+                    line = char
+                else:
+                    line = candidate
+            result.append(line)
+        return result or [""]
+
+    def _draw_lines(
+        self, draw: Any, lines: list[str], x: int, y: int, font: Any, fill: str, line_h: int
+    ) -> None:
+        for line in lines:
+            self._text(draw, (x, y), line, font, fill)
+            y += line_h
+
+    def _text(self, draw: Any, xy: tuple[int, int], text: str, font: Any, fill: str) -> None:
+        draw.text(xy, str(text), font=font, fill=fill)
+
+    def _text_width(self, draw: Any, text: str, font: Any) -> int:
+        box = draw.textbbox((0, 0), text, font=font)
+        return box[2] - box[0]
+
+    def _rect(self, draw: Any, xy: list[int], fill: str, outline: str, width: int = 2) -> None:
+        draw.rectangle(xy, fill=fill, outline=outline, width=width)
+
+    def _load_font(self, image_font: Any, size: int, bold: bool = False) -> Any:
+        candidates = [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/arphic/uming.ttc",
+            "/System/Library/Fonts/PingFang.ttc",
+            "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc",
+            "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
+        ]
+        for path in candidates:
+            try:
+                return image_font.truetype(path, size=size)
+            except Exception:
+                continue
+        return image_font.load_default()
+
+    def _cleanup_image_cache(self) -> None:
+        deadline = time.time() - 24 * 60 * 60
+        for path in self.cache_dir.glob("compare-*.png"):
+            try:
+                if path.stat().st_mtime < deadline:
+                    path.unlink()
+            except OSError:
+                continue
 
     async def terminate(self):
         pass
