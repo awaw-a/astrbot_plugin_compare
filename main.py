@@ -76,12 +76,25 @@ class ComparePlugin(Star):
             raise RuntimeError("当前会话没有可用的 LLM 提供商，请先在 AstrBot 配置模型。")
 
         prompt = self._build_prompt(left, right)
-        llm_resp = await self.context.llm_generate(
-            chat_provider_id=provider_id,
-            prompt=prompt,
-        )
-        payload = self._load_json(llm_resp.completion_text)
-        return self._normalize_data(payload, left, right)
+        last_error: Exception | None = None
+        for attempt in range(2):
+            llm_resp = await self.context.llm_generate(
+                chat_provider_id=provider_id,
+                prompt=prompt,
+            )
+            raw_text = getattr(llm_resp, "completion_text", "") or ""
+            try:
+                payload = self._load_json(raw_text)
+                return self._normalize_data(payload, left, right)
+            except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                last_error = exc
+                logger.warning(
+                    f"LLM 返回的对比数据不是可用 JSON，第 {attempt + 1} 次尝试失败：{exc}；"
+                    f"原文前 200 字：{raw_text[:200]!r}"
+                )
+                prompt = self._build_json_repair_prompt(left, right, raw_text)
+
+        raise RuntimeError("LLM 没有返回合法的对比 JSON，请稍后重试。") from last_error
 
     def _build_prompt(self, left: str, right: str) -> str:
         return f"""
@@ -92,6 +105,7 @@ class ComparePlugin(Star):
 2. 适合群聊阅读，句子短，有信息量，不要写成长文。
 3. 如果两者不是同一领域，也要说明比较口径，避免绝对化。
 4. 只输出 JSON，不要 Markdown，不要代码块。
+5. 回复必须以 {{ 开头，以 }} 结尾；不要输出任何解释、前言或后记。
 
 JSON 格式必须是：
 {{
@@ -113,21 +127,53 @@ JSON 格式必须是：
 }}
 """.strip()
 
+    def _build_json_repair_prompt(self, left: str, right: str, raw_text: str) -> str:
+        return f"""
+下面这段内容本来应该是「{left}」和「{right}」的对比 JSON，但格式不合法。
+请你把它修复为一个合法 JSON 对象，只输出 JSON，不要 Markdown，不要代码块，不要解释。
+
+必须包含这些字段：
+title, summary, winner, left, right, rows, final
+
+rows 是数组，每项必须包含：
+aspect, left_good, left_bad, right_good, right_bad
+
+原始内容：
+{raw_text[:4000]}
+""".strip()
+
     def _load_json(self, text: str) -> dict[str, Any]:
-        cleaned = text.strip()
+        cleaned = (text or "").strip().lstrip("\ufeff")
+        if not cleaned:
+            raise ValueError("LLM 返回为空")
+
         fenced = re.search(r"```(?:json)?\s*(.*?)```", cleaned, flags=re.S | re.I)
         if fenced:
             cleaned = fenced.group(1).strip()
-        if not cleaned.startswith("{"):
-            start = cleaned.find("{")
-            end = cleaned.rfind("}")
-            if start != -1 and end != -1 and end > start:
-                cleaned = cleaned[start : end + 1]
-        return json.loads(cleaned)
+
+        decoder = json.JSONDecoder()
+        starts = [match.start() for match in re.finditer(r"\{", cleaned)]
+        if not starts:
+            raise ValueError(f"LLM 返回内容里没有 JSON 对象：{cleaned[:120]}")
+
+        last_error: json.JSONDecodeError | None = None
+        for start in starts:
+            try:
+                payload, _ = decoder.raw_decode(cleaned[start:])
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                continue
+            if isinstance(payload, dict):
+                return payload
+
+        raise ValueError(f"LLM 返回内容不是合法 JSON 对象：{cleaned[:120]}") from last_error
 
     def _normalize_data(
         self, payload: dict[str, Any], left: str, right: str
     ) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("LLM 返回的 JSON 顶层不是对象")
+
         rows = payload.get("rows")
         if not isinstance(rows, list) or not rows:
             raise ValueError("LLM 没有返回可用的对比 rows")
