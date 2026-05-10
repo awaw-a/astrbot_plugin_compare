@@ -89,7 +89,8 @@ class ComparePlugin(Star):
             raw_text = getattr(llm_resp, "completion_text", "") or ""
             try:
                 payload = self._load_json(raw_text)
-                return self._normalize_data(payload, left, right)
+                data = self._normalize_data(payload, left, right)
+                return self._apply_viewpoint_policy(data, left, right, viewpoint_bias)
             except (json.JSONDecodeError, ValueError, TypeError) as exc:
                 last_error = exc
                 logger.warning(
@@ -127,7 +128,8 @@ class ComparePlugin(Star):
 3. 如果两者不是同一领域，也要说明比较口径，避免绝对化。
 4. 只输出 JSON，不要 Markdown，不要代码块。
 5. 回复必须以 {{ 开头，以 }} 结尾；不要输出任何解释、前言或后记。
-6. 观点鲜明度为 {viewpoint_bias}/10：0 表示尽量判定平局，10 表示必须明确选出一方胜出。请按这个强度控制 winner 和 final 的偏向性。
+6. 观点鲜明度为 {viewpoint_bias}/10：0 表示必须判定为平局或各有胜场，10 表示必须明确选出一方胜出。请按这个强度控制 winner 和 final 的偏向性。
+7. 如果观点鲜明度为 0，winner 必须写“各有胜场”，final 必须强调不同场景各有优势，不能说任何一方胜出、碾压或更强。
 
 JSON 格式必须是：
 {{
@@ -155,7 +157,7 @@ JSON 格式必须是：
         return f"""
 下面这段内容本来应该是「{left}」和「{right}」的对比 JSON，但格式不合法。
 请你把它修复为一个合法 JSON 对象，只输出 JSON，不要 Markdown，不要代码块，不要解释。
-观点鲜明度为 {viewpoint_bias}/10：请保持这个偏向性强度。
+观点鲜明度为 {viewpoint_bias}/10：请保持这个偏向性强度。若为 0，winner 必须写“各有胜场”，final 不能判定任何一方胜出。
 
 必须包含这些字段：
 title, summary, winner, left, right, rows, final
@@ -207,6 +209,8 @@ aspect, left_good, left_bad, right_good, right_bad
 
         normalized_rows = []
         for row in rows[:7]:
+            if not isinstance(row, dict):
+                continue
             normalized_rows.append(
                 {
                     "aspect": str(row.get("aspect", "综合表现"))[:24],
@@ -216,6 +220,8 @@ aspect, left_good, left_bad, right_good, right_bad
                     "right_bad": str(row.get("right_bad", ""))[:80],
                 }
             )
+        if not normalized_rows:
+            raise ValueError("LLM 返回的对比 rows 没有可用项目")
 
         return {
             "title": str(payload.get("title") or f"{left} vs {right}")[:40],
@@ -226,6 +232,22 @@ aspect, left_good, left_bad, right_good, right_bad
             "rows": normalized_rows,
             "final": str(payload.get("final") or "")[:140],
         }
+
+    def _apply_viewpoint_policy(
+        self, data: dict[str, Any], left: str, right: str, viewpoint_bias: int
+    ) -> dict[str, Any]:
+        if viewpoint_bias != 0:
+            return data
+
+        data["winner"] = "各有胜场"
+        data["summary"] = (
+            f"{left} 和 {right} 的优势取决于使用场景，按当前观点鲜明度设置不强行分胜负。"
+        )[:120]
+        data["final"] = (
+            f"本次观点鲜明度为 0，所以结论按平局处理：{left} 和 {right} "
+            "各有适合自己的场景，选择哪一个主要看你的需求和偏好。"
+        )[:140]
+        return data
 
     def _render_png(self, data: dict[str, Any]) -> Path:
         from PIL import Image, ImageDraw, ImageFont
