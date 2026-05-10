@@ -7,15 +7,16 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from astrbot.api import logger
+from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 
 @register("compare", "aw4w", "调用 LLM 生成两者优劣对照表并输出图片", "1.0.1")
 class ComparePlugin(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context)
+        self.config = config or {}
         self.cache_dir = Path(tempfile.gettempdir()) / "astrbot_plugin_compare"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._font_path_cache: dict[bool, Path] = {}
@@ -71,15 +72,14 @@ class ComparePlugin(Star):
     async def _generate_compare_data(
         self, event: AstrMessageEvent, left: str, right: str
     ) -> dict[str, Any]:
-        provider_id = await self.context.get_current_chat_provider_id(
-            umo=event.unified_msg_origin
-        )
+        provider_id = await self._get_provider_id(event)
         if not provider_id:
             raise RuntimeError(
                 "当前会话没有可用的 LLM 提供商，请先在 AstrBot 配置模型。"
             )
 
-        prompt = self._build_prompt(left, right)
+        viewpoint_bias = self._get_viewpoint_bias()
+        prompt = self._build_prompt(left, right, viewpoint_bias)
         last_error: Exception | None = None
         for attempt in range(2):
             llm_resp = await self.context.llm_generate(
@@ -96,11 +96,28 @@ class ComparePlugin(Star):
                     f"LLM 返回的对比数据不是可用 JSON，第 {attempt + 1} 次尝试失败：{exc}；"
                     f"原文前 200 字：{raw_text[:200]!r}"
                 )
-                prompt = self._build_json_repair_prompt(left, right, raw_text)
+                prompt = self._build_json_repair_prompt(
+                    left, right, viewpoint_bias, raw_text
+                )
 
         raise RuntimeError("LLM 没有返回合法的对比 JSON，请稍后重试。") from last_error
 
-    def _build_prompt(self, left: str, right: str) -> str:
+    async def _get_provider_id(self, event: AstrMessageEvent) -> str | None:
+        configured_provider = str(self.config.get("llm_provider") or "").strip()
+        if configured_provider:
+            return configured_provider
+        return await self.context.get_current_chat_provider_id(
+            umo=event.unified_msg_origin
+        )
+
+    def _get_viewpoint_bias(self) -> int:
+        try:
+            value = int(self.config.get("viewpoint_bias", 6))
+        except (TypeError, ValueError):
+            value = 6
+        return max(0, min(10, value))
+
+    def _build_prompt(self, left: str, right: str, viewpoint_bias: int) -> str:
         return f"""
 你是一个客观、幽默但不胡编的群聊裁判。请比较「{left}」和「{right}」谁更厉害。
 
@@ -110,6 +127,7 @@ class ComparePlugin(Star):
 3. 如果两者不是同一领域，也要说明比较口径，避免绝对化。
 4. 只输出 JSON，不要 Markdown，不要代码块。
 5. 回复必须以 {{ 开头，以 }} 结尾；不要输出任何解释、前言或后记。
+6. 观点鲜明度为 {viewpoint_bias}/10：0 表示尽量判定平局，10 表示必须明确选出一方胜出。请按这个强度控制 winner 和 final 的偏向性。
 
 JSON 格式必须是：
 {{
@@ -131,10 +149,13 @@ JSON 格式必须是：
 }}
 """.strip()
 
-    def _build_json_repair_prompt(self, left: str, right: str, raw_text: str) -> str:
+    def _build_json_repair_prompt(
+        self, left: str, right: str, viewpoint_bias: int, raw_text: str
+    ) -> str:
         return f"""
 下面这段内容本来应该是「{left}」和「{right}」的对比 JSON，但格式不合法。
 请你把它修复为一个合法 JSON 对象，只输出 JSON，不要 Markdown，不要代码块，不要解释。
+观点鲜明度为 {viewpoint_bias}/10：请保持这个偏向性强度。
 
 必须包含这些字段：
 title, summary, winner, left, right, rows, final

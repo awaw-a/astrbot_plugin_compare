@@ -1,0 +1,20 @@
+{
+  "llm_provider": {
+    "description": "LLM 模型提供商",
+    "type": "string",
+    "default": "",
+    "hint": "选择用于生成对比内容的模型提供商。留空时使用当前会话默认模型提供商。",
+    "_special": "select_provider"
+  },
+  "viewpoint_bias": {
+    "description": "观点鲜明度",
+    "type": "int",
+    "default": 6,
+    "hint": "控制对比结论的偏向性。0 表示尽量判定平局，10 表示必须明确选出一方胜出。",
+    "slider": {
+      "min": 0,
+      "max": 10,
+      "step": 1
+    }
+  }
+}
